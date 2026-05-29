@@ -17,6 +17,7 @@ use WordPress\AiClient\Providers\Models\Enums\CapabilityEnum;
 use WordPress\AiClient\Providers\Models\Enums\OptionEnum;
 use WordPress\AiClient\Providers\OpenAiCompatibleImplementation\AbstractOpenAiCompatibleModelMetadataDirectory;
 use WordPress\OpenAiAiProvider\Provider\OpenAiProvider;
+use WordPress\OpenAiAiProvider\Settings\OpenAiSettings;
 
 /**
  * Class for the OpenAI model metadata directory.
@@ -175,6 +176,18 @@ class OpenAiModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
         ];
 
         $modelsData = (array) $responseData['data'];
+        $defaultModelId = OpenAiSettings::getDefaultModel();
+        if ($defaultModelId !== '' && !self::containsModelId($modelsData, $defaultModelId)) {
+            $modelsData[] = [
+                'id' => $defaultModelId,
+            ];
+        }
+        $defaultImageModelId = OpenAiSettings::getDefaultImageModel();
+        if ($defaultImageModelId !== '' && !self::containsModelId($modelsData, $defaultImageModelId)) {
+            $modelsData[] = [
+                'id' => $defaultImageModelId,
+            ];
+        }
 
         $models = array_values(
             array_map(
@@ -188,10 +201,16 @@ class OpenAiModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
                     $dalleImageOptions,
                     $gptImageOptions,
                     $ttsCapabilities,
-                    $ttsOptions
+                    $ttsOptions,
+                    $defaultImageModelId
                 ): ModelMetadata {
                     $modelId = $modelData['id'];
-                    if (
+                    if ($defaultImageModelId !== '' && $modelId === $defaultImageModelId) {
+                        $modelCaps = $imageCapabilities;
+                        $modelOptions = str_starts_with($modelId, 'dall-e-')
+                            ? $dalleImageOptions
+                            : $gptImageOptions;
+                    } elseif (
                         str_starts_with($modelId, 'dall-e-') ||
                         str_starts_with($modelId, 'gpt-image-')
                     ) {
@@ -235,6 +254,9 @@ class OpenAiModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
                             $modelCaps = [];
                             $modelOptions = [];
                         }
+                    } elseif (!self::isLikelyNonGenerativeModel($modelId)) {
+                        $modelCaps = $gptCapabilities;
+                        $modelOptions = $gptOptions;
                     } else {
                         $modelCaps = [];
                         $modelOptions = [];
@@ -273,6 +295,46 @@ class OpenAiModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
     }
 
     /**
+     * Checks whether a model ID is likely not usable for text generation.
+     *
+     * @since 1.0.4
+     *
+     * @param string $modelId The model ID.
+     * @return bool True if the model is likely non-generative.
+     */
+    private static function isLikelyNonGenerativeModel(string $modelId): bool
+    {
+        return str_contains($modelId, 'embedding')
+            || str_contains($modelId, 'moderation')
+            || str_contains($modelId, 'realtime')
+            || str_contains($modelId, 'transcribe')
+            || str_contains($modelId, 'whisper');
+    }
+
+    /**
+     * Checks whether a model list already contains the model ID.
+     *
+     * @since 1.0.4
+     *
+     * @param array<mixed> $modelsData Model data.
+     * @param string       $modelId The model ID.
+     * @return bool True if the model is present.
+     */
+    private static function containsModelId(array $modelsData, string $modelId): bool
+    {
+        foreach ($modelsData as $modelData) {
+            if (!is_array($modelData)) {
+                continue;
+            }
+            if (($modelData['id'] ?? '') === $modelId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Callback function for sorting models by ID, to be used with `usort()`.
      *
      * This method expresses preferences for certain models or model families within the provider by putting them
@@ -289,6 +351,26 @@ class OpenAiModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
     {
         $aId = $a->getId();
         $bId = $b->getId();
+        $defaultModelId = OpenAiSettings::getDefaultModel();
+        $defaultImageModelId = OpenAiSettings::getDefaultImageModel();
+
+        if ($defaultModelId !== '') {
+            if ($aId === $defaultModelId && $bId !== $defaultModelId) {
+                return -1;
+            }
+            if ($bId === $defaultModelId && $aId !== $defaultModelId) {
+                return 1;
+            }
+        }
+
+        if ($defaultImageModelId !== '') {
+            if ($aId === $defaultImageModelId && $bId !== $defaultImageModelId) {
+                return -1;
+            }
+            if ($bId === $defaultImageModelId && $aId !== $defaultImageModelId) {
+                return 1;
+            }
+        }
 
         // Prefer non-preview models over preview models.
         if (str_contains($aId, '-preview') && !str_contains($bId, '-preview')) {

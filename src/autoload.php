@@ -1,7 +1,7 @@
 <?php
 
 /**
- * PSR-4 autoloader for the AI Provider for OpenAI package.
+ * PSR-4 autoloader for the OpenAI-compatible AI Connector package.
  *
  * @since 1.0.0
  *

@@ -9,6 +9,7 @@ use WordPress\AiClient\Providers\Http\DTO\Request;
 use WordPress\AiClient\Providers\Http\Enums\HttpMethodEnum;
 use WordPress\AiClient\Providers\OpenAiCompatibleImplementation\AbstractOpenAiCompatibleImageGenerationModel;
 use WordPress\OpenAiAiProvider\Provider\OpenAiProvider;
+use WordPress\OpenAiAiProvider\Settings\OpenAiSettings;
 
 /**
  * Class for an OpenAI image generation model using the Images API.
@@ -101,7 +102,14 @@ class OpenAiImageGenerationModel extends AbstractOpenAiCompatibleImageGeneration
      */
     protected function isGptImageModel(string $modelId): bool
     {
-        return str_starts_with($modelId, 'gpt-image-');
+        $defaultImageModelId = OpenAiSettings::getDefaultImageModel();
+
+        return str_starts_with($modelId, 'gpt-image-')
+            || (
+                $defaultImageModelId !== ''
+                && $modelId === $defaultImageModelId
+                && !str_starts_with($modelId, 'dall-e-')
+            );
     }
 
     /**

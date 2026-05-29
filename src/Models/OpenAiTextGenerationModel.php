@@ -24,6 +24,7 @@ use WordPress\AiClient\Tools\DTO\FunctionCall;
 use WordPress\AiClient\Tools\DTO\FunctionDeclaration;
 use WordPress\AiClient\Tools\DTO\WebSearch;
 use WordPress\OpenAiAiProvider\Provider\OpenAiProvider;
+use WordPress\OpenAiAiProvider\Settings\OpenAiSettings;
 
 /**
  * Class for an OpenAI text generation model using the Responses API.
@@ -70,21 +71,44 @@ class OpenAiTextGenerationModel extends AbstractApiBasedModel implements TextGen
 
         $params = $this->prepareGenerateTextParams($prompt);
 
+        $url = OpenAiProvider::responsesUrl();
+        $request = $this->createGenerateTextRequest($url, $params);
+
+        // Send and process the request.
+        $response = $httpTransporter->send($request);
+        if (in_array($response->getStatusCode(), [404, 405], true)) {
+            $fallbackUrl = OpenAiSettings::getResponsesApiFallbackUrl($url);
+            if ($fallbackUrl !== '') {
+                $response = $httpTransporter->send(
+                    $this->createGenerateTextRequest($fallbackUrl, $params)
+                );
+            }
+        }
+
+        ResponseUtil::throwIfNotSuccessful($response);
+        return $this->parseResponseToGenerativeAiResult($response);
+    }
+
+    /**
+     * Creates an authenticated text generation request.
+     *
+     * @since 1.0.4
+     *
+     * @param string               $url Responses API URL.
+     * @param array<string, mixed> $params Request parameters.
+     * @return Request The authenticated request.
+     */
+    protected function createGenerateTextRequest(string $url, array $params): Request
+    {
         $request = new Request(
             HttpMethodEnum::POST(),
-            OpenAiProvider::url('responses'),
+            $url,
             ['Content-Type' => 'application/json'],
             $params,
             $this->getRequestOptions()
         );
 
-        // Add authentication credentials to the request.
-        $request = $this->getRequestAuthentication()->authenticateRequest($request);
-
-        // Send and process the request.
-        $response = $httpTransporter->send($request);
-        ResponseUtil::throwIfNotSuccessful($response);
-        return $this->parseResponseToGenerativeAiResult($response);
+        return $this->getRequestAuthentication()->authenticateRequest($request);
     }
 
     /**
@@ -100,15 +124,18 @@ class OpenAiTextGenerationModel extends AbstractApiBasedModel implements TextGen
     {
         $config = $this->getConfig();
 
-        $params = [
-            'model' => $this->metadata()->getId(),
-            'input' => $this->prepareInputParam($prompt),
-        ];
+        $modelId = $this->metadata()->getId();
+        $input = $this->prepareInputParam($prompt);
 
         $systemInstruction = $config->getSystemInstruction();
         if ($systemInstruction) {
-            $params['instructions'] = $systemInstruction;
+            array_unshift($input, $this->getSystemInstructionInputItem($systemInstruction));
         }
+
+        $params = [
+            'model' => $modelId,
+            'input' => $input,
+        ];
 
         $maxTokens = $config->getMaxTokens();
         if ($maxTokens !== null) {
@@ -116,16 +143,27 @@ class OpenAiTextGenerationModel extends AbstractApiBasedModel implements TextGen
         }
 
         $temperature = $config->getTemperature();
-        if ($temperature !== null) {
+        if ($temperature !== null && OpenAiSettings::shouldSendSamplingControls($modelId)) {
             $params['temperature'] = $temperature;
         }
 
         $topP = $config->getTopP();
-        if ($topP !== null) {
+        if ($topP !== null && OpenAiSettings::shouldSendSamplingControls($modelId)) {
             $params['top_p'] = $topP;
         }
 
         // Note: OpenAI does not support top_k parameter.
+
+        $customOptions = $config->getCustomOptions();
+
+        if (
+            OpenAiSettings::shouldSendReasoningEffort($modelId)
+            && !isset($customOptions['reasoning'])
+        ) {
+            $params['reasoning'] = [
+                'effort' => OpenAiSettings::getReasoningEffort(),
+            ];
+        }
 
         $outputMimeType = $config->getOutputMimeType();
         $outputSchema = $config->getOutputSchema();
@@ -142,7 +180,6 @@ class OpenAiTextGenerationModel extends AbstractApiBasedModel implements TextGen
 
         $functionDeclarations = $config->getFunctionDeclarations();
         $webSearch = $config->getWebSearch();
-        $customOptions = $config->getCustomOptions();
 
         if (is_array($functionDeclarations) || $webSearch) {
             $params['tools'] = $this->prepareToolsParam(
@@ -168,6 +205,27 @@ class OpenAiTextGenerationModel extends AbstractApiBasedModel implements TextGen
         }
 
         return $params;
+    }
+
+    /**
+     * Returns a Responses API input item for the system instruction.
+     *
+     * @since 1.0.4
+     *
+     * @param string $systemInstruction The system instruction.
+     * @return array<string, mixed> The prepared input item.
+     */
+    protected function getSystemInstructionInputItem(string $systemInstruction): array
+    {
+        return [
+            'role' => 'system',
+            'content' => [
+                [
+                    'type' => 'input_text',
+                    'text' => $systemInstruction,
+                ],
+            ],
+        ];
     }
 
     /**

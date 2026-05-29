@@ -18,14 +18,17 @@ use WordPress\AiClient\Providers\Models\DTO\ModelMetadata;
 use WordPress\OpenAiAiProvider\Metadata\OpenAiModelMetadataDirectory;
 use WordPress\OpenAiAiProvider\Models\OpenAiImageGenerationModel;
 use WordPress\OpenAiAiProvider\Models\OpenAiTextGenerationModel;
+use WordPress\OpenAiAiProvider\Settings\OpenAiSettings;
 
 /**
- * Class for the AI Provider for OpenAI.
+ * Class for the OpenAI-compatible AI Connector.
  *
  * @since 1.0.0
  */
 class OpenAiProvider extends AbstractApiProvider
 {
+    public const PROVIDER_ID = 'openai-compatible';
+
     /**
      * {@inheritDoc}
      *
@@ -33,7 +36,19 @@ class OpenAiProvider extends AbstractApiProvider
      */
     protected static function baseUrl(): string
     {
-        return 'https://api.openai.com/v1';
+        return OpenAiSettings::getApiBaseUrl();
+    }
+
+    /**
+     * Gets the URL for the Responses API endpoint.
+     *
+     * @since 1.0.4
+     *
+     * @return string Responses API URL.
+     */
+    public static function responsesUrl(): string
+    {
+        return OpenAiSettings::getResponsesApiUrl();
     }
 
     /**
@@ -74,8 +89,8 @@ class OpenAiProvider extends AbstractApiProvider
     protected static function createProviderMetadata(): ProviderMetadata
     {
         $providerMetadataArgs = [
-            'openai',
-            'OpenAI',
+            self::PROVIDER_ID,
+            'OpenAI-compatible',
             ProviderTypeEnum::cloud(),
             'https://platform.openai.com/api-keys',
             RequestAuthenticationMethod::apiKey()
@@ -84,15 +99,13 @@ class OpenAiProvider extends AbstractApiProvider
         if (version_compare(AiClient::VERSION, '1.2.0', '>=')) {
             // For WordPress, we should translate the description.
             if (function_exists('__')) {
-                // phpcs:ignore Generic.Files.LineLength.TooLong
-                $providerMetadataArgs[] = __('Text and image generation with GPT and Dall-E.', 'ai-provider-for-openai');
+                $providerMetadataArgs[] = __(
+                    'Text and image generation through OpenAI-compatible APIs.',
+                    'ai-provider-for-openai'
+                );
             } else {
-                $providerMetadataArgs[] = 'Text and image generation with GPT and Dall-E.';
+                $providerMetadataArgs[] = 'Text and image generation through OpenAI-compatible APIs.';
             }
-        }
-        // Provider logoPath support was added in 1.3.0.
-        if (version_compare(AiClient::VERSION, '1.3.0', '>=')) {
-            $providerMetadataArgs[] = dirname(__DIR__, 2) . '/assets/images/openai.svg';
         }
         return new ProviderMetadata(...$providerMetadataArgs);
     }
