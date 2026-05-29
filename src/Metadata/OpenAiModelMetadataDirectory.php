@@ -33,6 +33,30 @@ class OpenAiModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
     /**
      * {@inheritDoc}
      *
+     * Some OpenAI-compatible gateways support generation endpoints but either do
+     * not expose `/models` or return a non-standard response. When explicit
+     * models are configured, expose those models as a fallback so the AI Client
+     * can still detect text/image support.
+     *
+     * @since 1.0.4
+     */
+    protected function sendListModelsRequest(): array
+    {
+        try {
+            return parent::sendListModelsRequest();
+        } catch (\Exception $e) {
+            $fallbackModels = $this->getConfiguredFallbackModelMetadataMap();
+            if ($fallbackModels !== []) {
+                return $fallbackModels;
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * @since 1.0.0
      */
     protected function createRequest(HttpMethodEnum $method, string $path, array $headers = [], $data = null): Request
@@ -332,6 +356,52 @@ class OpenAiModelMetadataDirectory extends AbstractOpenAiCompatibleModelMetadata
         }
 
         return false;
+    }
+
+    /**
+     * Gets configured model metadata without relying on the remote `/models` endpoint.
+     *
+     * @since 1.0.4
+     *
+     * @return array<string, ModelMetadata> Model metadata keyed by model ID.
+     */
+    private function getConfiguredFallbackModelMetadataMap(): array
+    {
+        if (OpenAiSettings::getApiKey() === '') {
+            return [];
+        }
+
+        $modelsData = [];
+        $defaultModelId = OpenAiSettings::getDefaultModel();
+        if ($defaultModelId !== '') {
+            $modelsData[] = [
+                'id' => $defaultModelId,
+            ];
+        }
+
+        $defaultImageModelId = OpenAiSettings::getDefaultImageModel();
+        if ($defaultImageModelId !== '' && !self::containsModelId($modelsData, $defaultImageModelId)) {
+            $modelsData[] = [
+                'id' => $defaultImageModelId,
+            ];
+        }
+
+        if ($modelsData === []) {
+            return [];
+        }
+
+        $response = new Response(
+            200,
+            ['Content-Type' => ['application/json']],
+            json_encode(['data' => $modelsData]) ?: '{"data":[]}'
+        );
+
+        $models = [];
+        foreach ($this->parseResponseToModelMetadataList($response) as $modelMetadata) {
+            $models[$modelMetadata->getId()] = $modelMetadata;
+        }
+
+        return $models;
     }
 
     /**

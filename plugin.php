@@ -114,6 +114,76 @@ function has_ai_credentials($hasCredentials): bool
 add_filter('wpai_has_ai_credentials', __NAMESPACE__ . '\\has_ai_credentials');
 
 /**
+ * Prepends the configured OpenAI-compatible text model to AI plugin defaults.
+ *
+ * @since 1.0.4
+ *
+ * @param array<int, mixed> $preferredModels Existing preferred models.
+ * @return array<int, mixed> Updated preferred models.
+ */
+function add_preferred_text_model(array $preferredModels): array
+{
+    $modelId = OpenAiSettings::getDefaultModel();
+    if ($modelId === '') {
+        return $preferredModels;
+    }
+
+    return prepend_provider_model_preference($preferredModels, $modelId);
+}
+
+add_filter('wpai_preferred_text_models', __NAMESPACE__ . '\\add_preferred_text_model');
+
+/**
+ * Prepends the configured OpenAI-compatible image model to AI plugin defaults.
+ *
+ * @since 1.0.4
+ *
+ * @param array<int, mixed> $preferredModels Existing preferred models.
+ * @return array<int, mixed> Updated preferred models.
+ */
+function add_preferred_image_model(array $preferredModels): array
+{
+    $modelId = OpenAiSettings::getDefaultImageModel();
+    if ($modelId === '') {
+        return $preferredModels;
+    }
+
+    return prepend_provider_model_preference($preferredModels, $modelId);
+}
+
+add_filter('wpai_preferred_image_models', __NAMESPACE__ . '\\add_preferred_image_model');
+
+/**
+ * Prepends a provider/model preference without duplicating an existing entry.
+ *
+ * @since 1.0.4
+ *
+ * @param array<int, mixed> $preferredModels Existing preferred models.
+ * @param string            $modelId         Model ID.
+ * @return array<int, mixed> Updated preferred models.
+ */
+function prepend_provider_model_preference(array $preferredModels, string $modelId): array
+{
+    $preference = [OpenAiProvider::PROVIDER_ID, $modelId];
+
+    $preferredModels = array_values(
+        array_filter(
+            $preferredModels,
+            static function ($item) use ($preference): bool {
+                return !is_array($item)
+                    || count($item) !== 2
+                    || $item[0] !== $preference[0]
+                    || $item[1] !== $preference[1];
+            }
+        )
+    );
+
+    array_unshift($preferredModels, $preference);
+
+    return $preferredModels;
+}
+
+/**
  * Registers the plugin settings.
  *
  * @since 1.0.4
